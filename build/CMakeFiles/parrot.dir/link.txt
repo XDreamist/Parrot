@@ -1,0 +1,2 @@
+/usr/bin/ar qc libparrot.a CMakeFiles/parrot.dir/parrot.cpp.o
+/usr/bin/ranlib libparrot.a

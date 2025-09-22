@@ -1,0 +1,3 @@
+/home/ghost/Developer/Parrot/build/CMakeFiles/parrot.dir
+/home/ghost/Developer/Parrot/build/CMakeFiles/edit_cache.dir
+/home/ghost/Developer/Parrot/build/CMakeFiles/rebuild_cache.dir
