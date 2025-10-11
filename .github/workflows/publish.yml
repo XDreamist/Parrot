@@ -1,0 +1,67 @@
+name: Publisher
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  build:
+    name: Build and Release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Extract version from CMakeLists.txt
+        id: get_version
+        run: |
+          VERSION=$(grep -Po '(?<=project\([^ ]+ VERSION )[^)]+(?=\))' CMakeLists.txt | head -1)
+          echo "Version found: $VERSION"
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Configure
+        run: |
+          mkdir -p build
+          cd build
+          cmake ..
+
+      - name: Build
+        run: |
+          cd build
+          make
+
+      - name: Package build
+        run: |
+          cd build
+          tar -czf myproject-${{ steps.get_version.outputs.version }}.tar.gz *
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-output
+          path: build/myproject-${{ steps.get_version.outputs.version }}.tar.gz
+
+      - name: Create Tag
+        if: github.ref == 'refs/heads/main'
+        run: |
+          VERSION="v${{ steps.get_version.outputs.version }}"
+          echo "Tagging release as $VERSION"
+          git config user.name "${{ github.actor }}"
+          git config user.email "${{ github.actor }}@users.noreply.github.com"
+          git tag -a $VERSION -m "Automated release $VERSION"
+          git push origin $VERSION
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.get_version.outputs.version }}
+          name: Release v${{ steps.get_version.outputs.version }}
+          generate_release_notes: true
+          files: build/myproject-${{ steps.get_version.outputs.version }}.tar.gz
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
