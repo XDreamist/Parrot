@@ -1,7 +1,7 @@
 name: Publisher
 
 on:
-  push:
+  push:  
     branches:
       - main
   pull_request:
@@ -23,8 +23,12 @@ jobs:
       - name: Extract version from CMakeLists.txt
         id: get_version
         run: |
-          VERSION=$(grep -Po '(?<=project\([^ ]+ VERSION )[^)]+(?=\))' CMakeLists.txt | head -1)
-          echo "Version found: $VERSION"
+          VERSION=$(grep -Po '(?<=project\([^ ]+ VERSION )[^)]+(?=\))' CMakeLists.txt | head -2)
+          if [ -z "$VERSION" ]; then
+            echo "❌ Failed to extract version from CMakeLists.txt"
+            exit 1
+          fi
+          echo "✅ Found version: $VERSION"
           echo "version=$VERSION" >> $GITHUB_OUTPUT
 
       - name: Configure
@@ -33,31 +37,44 @@ jobs:
           cd build
           cmake ..
 
-      - name: Build
+      - name: Build library
         run: |
           cd build
-          make
+          make -j$(nproc)
 
-      - name: Package build
+      - name: Find library file
+        id: find_lib
         run: |
           cd build
-          tar -czf myproject-${{ steps.get_version.outputs.version }}.tar.gz *
+          # Look for common library file types (.a, .so, .lib, .dll)
+          LIB_FILE=$(find . -type f \( -name "*.a" -o -name "*.so" -o -name "*.lib" -o -name "*.dll" \) | head -1)
+          if [ -z "$LIB_FILE" ]; then
+            echo "❌ No library file found in build directory"
+            exit 1
+          fi
+          echo "✅ Found library file: $LIB_FILE"
+          echo "lib_path=$LIB_FILE" >> $GITHUB_OUTPUT
 
-      - name: Upload build artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: build-output
-          path: build/myproject-${{ steps.get_version.outputs.version }}.tar.gz
+      - name: Check if tag exists
+        id: check_tag
+        run: |
+          TAG="v${{ steps.get_version.outputs.version }}"
+          if git ls-remote --tags origin | grep -q "refs/tags/$TAG$"; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+            echo "⚠️ Tag $TAG already exists — skipping tag creation"
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
 
       - name: Create Tag
-        if: github.ref == 'refs/heads/main'
+        if: steps.check_tag.outputs.exists == 'false' && github.ref == 'refs/heads/main'
         run: |
           VERSION="v${{ steps.get_version.outputs.version }}"
-          echo "Tagging release as $VERSION"
+          echo "🏷️ Tagging release as $VERSION"
           git config user.name "${{ github.actor }}"
           git config user.email "${{ github.actor }}@users.noreply.github.com"
           git tag -a $VERSION -m "Automated release $VERSION"
-          git push origin $VERSION
+          git push https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git $VERSION
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -65,6 +82,6 @@ jobs:
           tag_name: v${{ steps.get_version.outputs.version }}
           name: Release v${{ steps.get_version.outputs.version }}
           generate_release_notes: true
-          files: build/myproject-${{ steps.get_version.outputs.version }}.tar.gz
+          files: build/${{ steps.find_lib.outputs.lib_path }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
